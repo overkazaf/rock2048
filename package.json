@@ -1,0 +1,14 @@
+{
+  "name": "rock2048",
+  "version": "1.0.0",
+  "description": "AI tensorflow 2048 typescript react",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "WTFPL",
+  "dependencies": {
+    "@tensorflow/tfjs": "^0.14.1"
+  }
+}
