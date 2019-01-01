@@ -42,9 +42,13 @@ export class RandomTrainModel extends BaseTrainModel {
     // 1. 下一个状态中剩余的空余格子数
     // 2. 当前移动所增加的分值
     // 3. 下一个状态中，"2"存在的个数（原因是2越多，下一次合并的可能性越大，也可以优化为连续数值相同的个数）
-    this.weights[0] = Math.random();
-    this.weights[1] = Math.random();
-    this.weights[2] = Math.random();
+    // 直觉上来说
+    // 2的权重要更多些，因为我们目的就是获得更高的分数；
+    // 1次之，因为空余格子数越多，我们可以合并的可能越高，“救场”的可能性也越大；
+    // 3的话其实应该参考价值不大，但若是“连续数值多的”状态，应该给于的评估分值应该更高，这个倒是可以作为参考依据
+    this.weights[0] = 5; 
+    this.weights[1] = 10;
+    this.weights[2] = 1;
     // this.weights[3] = 10;
     this.biases[0] = Math.random();
   }

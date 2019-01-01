@@ -24,7 +24,7 @@ node dist/main.js
 
 # What I am going to do next
 + Render the 2048 game in react or other UI libs
-+ Render the 2048 game in WebGL just for sum
++ Render the 2048 game in WebGL just for fun
 + Add more algorithms the achive a better performance（or just see what will happen）, such as
   + Neural Networks
   + Decision Tree
