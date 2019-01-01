@@ -1,8 +1,17 @@
 "use strict";
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 var matrix_1 = require("./matrix");
 var direction_1 = require("./enums/direction");
-var random_1 = require("./TrainModels/random");
+var Models = __importStar(require("./TrainModels/index"));
+var BaseModel = Models.BaseModel, RandomModel = Models.RandomModel, NNModel = Models.NNModel;
+var TIMEOUT = 3000;
 var trainingDataSet = {
     inputs: [],
     labels: [],
@@ -19,14 +28,18 @@ var Game = /** @class */ (function () {
         this.isOver = false;
         this.states = [];
         this.trainingRecords = [];
+        this.prevPredictions = [];
         this.lastPredictions = [];
-        this.lastMovementDirection = null;
-        this.trainModel = new random_1.RandomTrainModel();
         this.lastState = [];
+        this.prevState = [];
+        this.prevMovementDirection = null;
+        this.lastMovementDirection = null;
+        this.trainingModel = new RandomModel();
+        this.trainingModel.init();
     }
-    Game.prototype.print = function (prefix) {
+    Game.prototype.printState = function (prefix) {
         var data = this.matrix.data;
-        console.log(prefix || '', "score::" + this.score);
+        console.log("\nCurrent score: " + this.score + ", board state: ");
         data.forEach(function (row) {
             var current = [];
             row.forEach(function (item) {
@@ -34,23 +47,48 @@ var Game = /** @class */ (function () {
             });
             console.log("[ " + current.join(',') + " ]");
         });
+        console.log('\n');
     };
     Game.prototype.predictNextDirection = function () {
+        this.prevState = this.lastState;
         var state = this.convertBoardStateToVector();
         this.lastState = state;
-        return this.trainModel.predict(state);
+        return this.trainingModel.predict(state);
     };
     Game.prototype.genNextRandomDirection = function () {
         return ~~(Math.random() * 4);
     };
     Game.prototype.handleGameOver = function () {
-        // const input = this;
-        // const label = [];
-        // // 优化之前移动导致游戏结束的状态
-        // if (this.lastPredictions) {
-        // }
-        // trainingDataSet.inputs.push(input);
-        // trainingDataSet.labels.push(label);
+        var label = [];
+        // 优化之前移动导致游戏结束的状态
+        var _a = this, lastState = _a.lastState, prevMovementDirection = _a.prevMovementDirection, lastMovementDirection = _a.lastMovementDirection;
+        switch (lastMovementDirection) {
+            case direction_1.DIRATION.UP:
+                // 上次是向上移动挂掉的，同理是可以向下的，下次记得向下做一次尝试，至少不会太差。
+                label = [0, 1, 0, 0];
+                break;
+            case direction_1.DIRATION.DOWN:
+                label = [1, 0, 0, 0];
+                break;
+            case direction_1.DIRATION.LEFT:
+                label = [0, 0, 0, 1];
+                break;
+            case direction_1.DIRATION.RIGHT:
+                label = [0, 0, 1, 0];
+                break;
+        }
+        trainingDataSet.inputs.push(lastState);
+        trainingDataSet.labels.push(label);
+        // console.info(
+        //   'Training',
+        //   'lastMovementDirection ==>',
+        //   DIRATION[lastMovementDirection],
+        //   'lastState ==> ',
+        //   lastState,
+        //   'label ==> ',
+        //   label,
+        // );
+        // this.trainingModel.fit(trainingDataSet.inputs, trainingDataSet.labels);
     };
     Game.prototype.convertBoardStateToVector = function () {
         var _this = this;
@@ -65,20 +103,34 @@ var Game = /** @class */ (function () {
                 scores.push(_this.score);
             }
             else {
-                // 移动
+                // 移动后计算分值
                 _this.moveByDirection(dir);
                 emptyBlockCounts.push(_this.findEmptyCordinates().length);
                 scores.push(_this.score);
             }
-            existed2Counts.push(_this.findExistedNumberCounts(2));
+            existed2Counts.push(_this.findCurrentMaxNumber());
             // 还原状态
             _this.setMatrix(originalMatrix);
         });
-        return [
-            emptyBlockCounts,
+        var vector = [
             scores,
+            emptyBlockCounts,
             existed2Counts,
         ];
+        console.log('vector', vector);
+        return vector;
+    };
+    Game.prototype.findCurrentMaxNumber = function () {
+        var data = this.matrix.data;
+        var maxNum = 0;
+        data.forEach(function (row, x) {
+            row.forEach(function (item, y) {
+                if (item >= maxNum) {
+                    maxNum = item;
+                }
+            });
+        });
+        return maxNum;
     };
     Game.prototype.findExistedNumberCounts = function (num) {
         var data = this.matrix.data;
@@ -93,45 +145,74 @@ var Game = /** @class */ (function () {
         return count;
     };
     Game.prototype.showGameOverMessage = function () {
+        console.log('');
         console.log("U failed, final score:" + this.score + ", total steps: " + this.states.length / 2);
         console.log('Final 2048 game state', this.matrix.data);
+        console.log('');
     };
     Game.prototype.start = function () {
+        this.genNewBoardState();
+    };
+    Game.prototype.genNewBoardState = function () {
         var _this = this;
-        var c = 0;
-        this.timer = setInterval(function () {
-            if (c++ % 2 === 0) {
-                var cords = _this.genRandomCordinate();
-                if (!cords.length) {
-                    clearInterval(_this.timer);
-                    _this.showGameOverMessage();
-                    _this.trainingRecords.push([_this.score, _this.states]);
-                    _this.handleGameOver();
-                    return;
-                }
-                var x = cords[0], y = cords[1];
-                _this.matrix.data[x][y] = 2;
-                _this.pushState([-1, _this.matrix.data]);
-                _this.print();
+        var cords = this.genRandomCordinate();
+        if (!cords.length) {
+            clearInterval(this.timer);
+            this.showGameOverMessage();
+            this.trainingRecords.push([this.score, this.states]);
+            this.handleGameOver();
+            return;
+        }
+        var x = cords[0], y = cords[1];
+        this.matrix.data[x][y] = 2;
+        this.pushState([-1, this.matrix.data]);
+        this.printState();
+        setTimeout(function () {
+            _this.moveNext();
+        }, TIMEOUT);
+    };
+    Game.prototype.moveNext = function () {
+        var _this = this;
+        var predictionPromiseLike = this.predictNextDirection();
+        var predictionFn = function (predictions) {
+            if (predictions.every(function (p) { return p == 0; })) {
+                _this.showGameOverMessage();
+                _this.handleGameOver();
             }
             else {
-                var predictions = _this.predictNextDirection();
-                if (predictions.every(function (p) { return p == 0; })) {
-                    _this.showGameOverMessage();
-                }
-                else {
-                    var findDirByIndex = function (arr) {
-                        return arr.indexOf(Math.max.apply(null, arr));
-                    };
-                    var dir = findDirByIndex(predictions);
-                    // We will use this state to optimize the training performance later
-                    _this.lastPredictions = predictions;
-                    _this.lastMovementDirection = dir;
-                    _this.moveByDirection(dir);
-                    _this.pushState([dir, _this.matrix.data]);
-                }
+                var findMaxNumIndexInArray = function (arr) {
+                    var maxNum = Math.max.apply(null, arr);
+                    var maxIndex = -1;
+                    arr.forEach(function (num, index) {
+                        if (num >= maxNum) {
+                            maxIndex = index;
+                            return;
+                        }
+                    });
+                    return maxIndex;
+                };
+                _this.prevPredictions = _this.lastPredictions;
+                _this.prevMovementDirection = _this.lastMovementDirection;
+                var dir = findMaxNumIndexInArray(predictions);
+                // We will use this state to optimize the training performance later
+                _this.lastPredictions = predictions;
+                _this.lastMovementDirection = dir;
+                console.log("AI predictions ==> " + predictions + ", dir ===> " + dir);
+                console.log("Before moving " + direction_1.DIRATION[dir], _this.matrix.data);
+                _this.moveByDirection(dir);
+                _this.pushState([dir, _this.matrix.data]);
+                console.log('After moving', _this.matrix.data);
+                // Tell the programme to generate next state
+                _this.genNewBoardState();
             }
-        }, 0);
+        };
+        try {
+            // promise-like return values, probably returned by tensorflow
+            predictionPromiseLike.data().then(predictionFn);
+        }
+        catch (e) {
+            predictionFn.call(null, predictionPromiseLike);
+        }
     };
     Game.prototype.pushState = function (step) {
         this.states.push(step);
@@ -182,7 +263,7 @@ var Game = /** @class */ (function () {
         // 逆时针旋转90度相当于顺时针旋转270度，先这么来吧，后边再优化
         return this.rotateClockwise(matrix, 3);
     };
-    /** 顺时间旋转二维矩阵，参考我的LeetCode AC case
+    /** 顺时针旋转二维矩阵，参考我的LeetCode AC case
      *  https://leetcode.com/submissions/detail/16339569/
        * input:
        * [
@@ -203,7 +284,7 @@ var Game = /** @class */ (function () {
        *    ....
        *    A(r-1,0), ....., A(r-1, j+c-1),
        *  】
-       * 进行顺时间旋转有如下的变换关系，记起始变换位置为(x, y)，blablabla
+       * 进行顺时针旋转有如下的变换关系，记起始变换位置为(x, y)，blablabla
        *
        */
     Game.prototype.rotateClockwise = function (matrix, rotateTimes) {

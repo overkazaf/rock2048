@@ -12,19 +12,30 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 var base_1 = require("./base");
 var direction_1 = require("../enums/direction");
-var RandomTrainModel = /** @class */ (function (_super) {
-    __extends(RandomTrainModel, _super);
-    function RandomTrainModel() {
+var tf = __importStar(require("@tensorflow/tfjs"));
+var RandomModel = /** @class */ (function (_super) {
+    __extends(RandomModel, _super);
+    function RandomModel() {
         var _this = _super.call(this) || this;
         _this.weights = [];
         _this.biases = [];
-        _this.randomize();
+        _this.optimizer = tf.train.adam(0.01);
         return _this;
     }
-    RandomTrainModel.prototype.predict = function (inputs) {
+    RandomModel.prototype.init = function () {
+        this.randomize();
+    };
+    RandomModel.prototype.predict = function (inputs) {
         var _this = this;
         var directions = [
             direction_1.DIRATION.UP,
@@ -44,11 +55,16 @@ var RandomTrainModel = /** @class */ (function (_super) {
         var normalizedYs = ys.map(function (y) { return y / sum; });
         return normalizedYs;
     };
-    RandomTrainModel.prototype.train = function (inputs, labels) {
+    RandomModel.prototype.train = function (inputs, labels) {
+        var _this = this;
         // 根据inputs和labels进行weights和biases的参数调整，在随机算法中，我们直接把参数给随机好了。。
-        this.randomize();
+        this.optimizer.minimize(function () {
+            var predictedYs = _this.predict(inputs);
+            // 计算评价值，默认用均方差，值越小说明拟合效果越好
+            return _this.loss(predictedYs, labels);
+        });
     };
-    RandomTrainModel.prototype.randomize = function () {
+    RandomModel.prototype.randomize = function () {
         // 随机生成所有模型参数
         // 在预测下一次移动过程中，哪个方向的可能性最大，我们假设因素为几个：
         // 1. 下一个状态中剩余的空余格子数
@@ -58,12 +74,21 @@ var RandomTrainModel = /** @class */ (function (_super) {
         // 2的权重要更多些，因为我们目的就是获得更高的分数；
         // 1次之，因为空余格子数越多，我们可以合并的可能越高，“救场”的可能性也越大；
         // 3的话其实应该参考价值不大，但若是“连续数值多的”状态，应该给于的评估分值应该更高，这个倒是可以作为参考依据
-        this.weights[0] = 5;
+        // this.weights[0] = Math.random(); 
+        // this.weights[1] = Math.random();
+        // this.weights[2] = Math.random();
+        this.weights[0] = 1;
         this.weights[1] = 10;
         this.weights[2] = 1;
         // this.weights[3] = 10;
         this.biases[0] = Math.random();
     };
-    return RandomTrainModel;
-}(base_1.BaseTrainModel));
-exports.RandomTrainModel = RandomTrainModel;
+    RandomModel.prototype.fit = function (inputs, labels, trainningCount) {
+        if (trainningCount === void 0) { trainningCount = 100; }
+        for (var i = 0; i < trainningCount; i++) {
+            this.train(inputs, labels);
+        }
+    };
+    return RandomModel;
+}(base_1.BaseModel));
+exports.RandomModel = RandomModel;

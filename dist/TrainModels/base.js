@@ -1,14 +1,29 @@
 "use strict";
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-var BaseTrainModel = /** @class */ (function () {
-    function BaseTrainModel() {
+var tf = __importStar(require("@tensorflow/tfjs"));
+var BaseModel = /** @class */ (function () {
+    function BaseModel() {
     }
-    BaseTrainModel.prototype.predict = function (inputs) {
+    BaseModel.prototype.predict = function (inputs) {
         throw new Error('Implement this predict function in sub class');
     };
-    BaseTrainModel.prototype.train = function (inputs, labels) {
+    BaseModel.prototype.train = function (inputs, labels) {
         throw new Error('Implement this train function in sub class');
     };
-    return BaseTrainModel;
+    BaseModel.prototype.loss = function (predictedYs, labels) {
+        var meanSquareError = predictedYs
+            .sub(tf.tensor(labels))
+            .square()
+            .mean();
+        return meanSquareError;
+    };
+    return BaseModel;
 }());
-exports.BaseTrainModel = BaseTrainModel;
+exports.BaseModel = BaseModel;
