@@ -1,5 +1,6 @@
 # rock2048
 Training robots to crack 2048 game in basic AI algorithms.
+U can try how many scores u can get in 2048 game, try this [link](http://2048game.com/).
 
 # How to develop
 
@@ -30,7 +31,7 @@ node dist/main.js
   + Genetic Algorithm
 
 # Motivations
-[https://github.com/MagicCube/tensorflow-rex-run](tensorflow-rex-run)
+[tensorflow-rex-run](https://github.com/MagicCube/tensorflow-rex-run)
 
 # Liscense
 WTFPL
