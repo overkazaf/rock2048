@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-var Matrix = /** @class */ (function () {
+var Matrix = (function () {
     function Matrix(data) {
         this.data = data;
         this.r = data.length;
@@ -8,7 +8,14 @@ var Matrix = /** @class */ (function () {
         return this;
     }
     Matrix.prototype.clone = function () {
-        return new Matrix(this.data.slice());
+        var newData = [];
+        this.data.forEach(function (r, i) {
+            newData[i] = [];
+            r.forEach(function (c, j) {
+                newData[i][j] = c;
+            });
+        });
+        return new Matrix(newData);
     };
     return Matrix;
 }());

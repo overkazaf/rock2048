@@ -1,20 +1,18 @@
 import { algo } from './algorithm';
 import { Matrix } from './matrix';
-import { DIRATION } from './enums/direction';
+import { DIRECTION } from './enums/direction';
 import * as Models from './TrainModels/index';
-
+const chalk = require('chalk');
 const {
-  BaseModel,
   RandomModel,
-  NNModel,
 } = Models;
-
-const TIMEOUT = 3000;
+const SWITCH_PLAYER_TIMEOUT = 0;
+const RESTART_COUNT = 10;
 
 interface GameBaseInterface {
   isGameOver(): boolean;
-  genRandomCordinate(): void;
-  findEmptyCordinates(): number[][];
+  genRandomCoordinate(): void;
+  findEmptyCoordinates(): number[][];
 }
 
 type DataSet = {
@@ -36,10 +34,11 @@ class Game implements algo, GameBaseInterface {
   trainingRecords: any[];
   lastPredictions: number[];
   prevPredictions: number[];
-  prevMovementDirection: DIRATION | null;
-  lastMovementDirection: DIRATION | null;
+  prevMovementDirection: DIRECTION | null;
+  lastMovementDirection: DIRECTION | null;
   lastState: number[][];
   prevState: number[][];
+  restartCount: number;
 
   constructor() {
     this.matrix = new Matrix(
@@ -61,30 +60,62 @@ class Game implements algo, GameBaseInterface {
     this.prevMovementDirection = null;
     this.lastMovementDirection = null;
     this.trainingModel = new RandomModel();
-    this.trainingModel.init();  
+    this.trainingModel.init();
+    this.restartCount = RESTART_COUNT;
+  }
+
+  resetMatrix(): void {
+    this.score = 0;
+    this.matrix = new Matrix(
+      [
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+        [0, 0, 0, 0],
+      ]
+    );
   }
 
   printState(prefix?: string): void {
     const { data } = this.matrix;
-    console.log(`\nCurrent score: ${this.score}, board state: `);
+    console.log(chalk.yellow(`\nCurrent score: ${this.score}, board state: `));
     data.forEach(row => {
       const current: number[] = [];
       row.forEach(item => {
         current.push(<number>item);
       });
-      console.log(`[ ${current.join(',')} ]`);
+      console.log(chalk.green(`[ ${current.join(',')} ]`));
     });
     console.log('\n');
   }
 
   predictNextDirection() {
     this.prevState = this.lastState;
-    const state = this.convertBoardStateToVector();
-    this.lastState = state;
-    return this.trainingModel.predict(state);
+    console.log(
+      `original score: ${this.score}`,
+    );
+    const currentState = this.convertBoardStateToVector();
+
+    console.log(
+      'currentState in predictNextDirection\n',
+
+      chalk.red(`emptyBlockCounts, scores, existed2Counts`),
+    );
+    console.table(
+      currentState.map((r: number[], i: number) => {
+        return r.map((c: number) => {
+          if (i === 0) return `e${c}`;
+          else if (i === 1) return `s${c}`;
+          else return `c${c}`;
+        })
+      }),
+    );
+
+    this.lastState = currentState;
+    return this.trainingModel.predict(currentState);
   }
 
-  genNextRandomDirection(): DIRATION {
+  genNextRandomDirection(): DIRECTION {
     return ~~(Math.random() * 4);
   }
 
@@ -98,28 +129,56 @@ class Game implements algo, GameBaseInterface {
     } = this;
 
     switch(lastMovementDirection) {
-      case DIRATION.UP:
+      case DIRECTION.UP:
         // 上次是向上移动挂掉的，同理是可以向下的，下次记得向下做一次尝试，至少不会太差。
         label = [0, 1, 0, 0];
         break;
-      case DIRATION.DOWN:
+      case DIRECTION.DOWN:
         label = [1, 0, 0, 0];
         break;
-      case DIRATION.LEFT:
+      case DIRECTION.LEFT:
         label = [0, 0, 0, 1];
         break;
-      case DIRATION.RIGHT:
+      case DIRECTION.RIGHT:
         label = [0, 0, 1, 0];
         break;
     }
 
-    trainingDataSet.inputs.push(lastState);
-    trainingDataSet.labels.push(label);
+    // trainingDataSet.inputs.push(lastState);
+    // trainingDataSet.labels.push(label);
+    // 记录参数后续的调节
+    // console.log(
+    //   'this.weights',
+    //   this.trainingModel.weights,
+    //   this.trainingModel.biases,
+    // );
+
+    console.log(
+      'this.restartCount',
+      this.restartCount,
+      this.score,
+      [this.trainingModel.weights, this.trainingModel.biases],
+    );
+    if (this.findCurrentMaxNumber() < 2048 && this.restartCount-- > 0) {
+      this.trainingRecords.push([ this.findCurrentMaxNumber(), [this.trainingModel.weights, this.trainingModel.biases] ]);
+      setTimeout( () => {
+        this.resetMatrix();
+        this.start();
+      }, 50);
+    } else {
+      console.log(
+        'trainingRecords',
+        this.trainingRecords.sort((a, b) => {
+          return b[0] - a[0];
+        }).map(item => item[0]),
+        this.findCurrentMaxNumber(),
+      );
+    }
 
     // console.info(
     //   'Training',
     //   'lastMovementDirection ==>',
-    //   DIRATION[lastMovementDirection],
+    //   DIRECTION[lastMovementDirection],
     //   'lastState ==> ',
     //   lastState,
     //   'label ==> ',
@@ -128,36 +187,175 @@ class Game implements algo, GameBaseInterface {
     // this.trainingModel.fit(trainingDataSet.inputs, trainingDataSet.labels);
   }
 
-  convertBoardStateToVector(): number[][] {
-    const directions = [ DIRATION.UP, DIRATION.DOWN, DIRATION.LEFT, DIRATION.RIGHT ];
+  getOptimizedStateToVector() {
+    const directions = [ DIRECTION.UP, DIRECTION.DOWN, DIRECTION.LEFT, DIRECTION.RIGHT ];
+    const originalMatrix = this.matrix.clone();
+
+    // 这里可以做一些DFS的优化，进行深度移动的尝试，搜索从某个方向开始，在N次移动后的分值
+    // 必要的时候可以memorized，后续做剪枝
+
+    const board: any = {
+      [DIRECTION.UP]: [],
+      [DIRECTION.DOWN]: [],
+      [DIRECTION.LEFT]: [],
+      [DIRECTION.RIGHT]: [],
+    };
+
+    const dfs = (startDir: DIRECTION, paths: DIRECTION[], depth: number = 4) => {
+      if (depth === 0) {
+        // 递归结束，还原矩阵
+        this.setMatrix(originalMatrix);
+        return;
+      }
+      
+      let emptyBlockCounts: number[] = [];
+      let scores: number[] = [];
+      let existed2Counts: number[] = [];
+      directions.forEach(dir => {
+        const oldScore = this.score;
+        if (!this.isDirMovable(dir)) {
+          emptyBlockCounts.push(0);
+        } else {
+          this.moveByDirection(dir);
+          emptyBlockCounts.push(this.findEmptyCoordinates().length);
+        }
+        scores.push(this.score);
+        existed2Counts.push(this.findCurrentMaxNumber());
+        
+        const rMatrix = this.matrix.clone();
+        const newPaths = [...paths];
+        newPaths.push(dir);
+
+        console.log('newPaths', newPaths.join('-'));
+
+        // if (emptyBlockCounts.length === 4 && depth === 1) {
+        //   // 只放入最后第depth次移动的结果，根据其分值进行预测
+        //   board[startDir].push({
+        //     emptyBlockCounts,
+        //     scores,
+        //     existed2Counts,
+        //   });
+        // }
+        
+        board[paths.join('-')] = {
+          score: this.score,
+          state: rMatrix.data,
+        };
+
+        dfs(startDir, newPaths, depth - 1);
+        this.score = oldScore;
+        this.setMatrix(rMatrix);
+        newPaths.pop();
+      });
+    };
+    this.setMatrix(originalMatrix);
+
+    directions.forEach(dir => {
+      dfs(dir, [], 3);
+    });
+
+    // 对比maxState与state的评分，我们用相应的权重做加权对比
+    const ys = (givenState: any) => {
+      return directions.map(dir => {
+        if (givenState.emptyBlockCounts[dir] === 0) return 0;
+        return this.trainingModel.weights[0] * givenState.emptyBlockCounts[dir] || 0 +
+        this.trainingModel.weights[0] * givenState.scores[dir] || 0 +
+        this.trainingModel.weights[0] * givenState.existed2Counts[dir] || 0 +
+        this.trainingModel.biases[0];
+      });
+    };
+    
+    const getMaxEvalState = (states: any[]): any => {
+      let maxState = {};
+      states.forEach((state: any) => {
+        if (!Object.keys(maxState).length) {
+          maxState = {...state};
+        } else {
+          const ys1 = Math.max.apply(null, ys(maxState));
+          const ys2 = Math.max.apply(null, ys(state));
+          if (ys2 > ys1) {
+            maxState = {...state};
+          }
+        }
+      });
+      return maxState;
+    };
+
+    const dfsMaxEvaluations = () => {
+      const evals = Object.keys(board).map(dir => {
+        // 找到评估最高的state并返回
+        return getMaxEvalState(board[dir]);
+      });
+      return evals;
+    };
+
+    console.log('board', board);
+
+    const {
+      emptyBlockCounts,
+      scores,
+      existed2Counts,
+    } = getMaxEvalState(dfsMaxEvaluations());
+    
+    return [
+      emptyBlockCounts,
+      scores,
+      existed2Counts,
+    ];
+  }
+
+  convertBoardStateToVector(): any {
+    // return this.getOptimizedStateToVector();
+    
+    const directions = [ DIRECTION.UP, DIRECTION.DOWN, DIRECTION.LEFT, DIRECTION.RIGHT ];
     
     const emptyBlockCounts: number[] = [];
     const scores: number[] = [];
     const existed2Counts: number[] = [];
     
     const originalMatrix = this.matrix.clone();
+    
+    // this.getOptimizedStateToVector();
 
+    console.log('Speculating matrix transformation');
+    console.table(
+      originalMatrix.data,
+    );
     directions.forEach(dir => {
-      if (!this.isMovable(dir)) {
+      // 从每个方向开始，递归做尝试
+      const oldScore = this.score;
+      if (!this.isDirMovable(dir)) {
+        // 无法移动，说明存在的空格数为0
         emptyBlockCounts.push(0);
-        scores.push(this.score);
+        console.log(
+          chalk.red(`${DIRECTION[dir]} is unmovable...`)
+        );
+        existed2Counts.push(0);
       } else {
         // 移动后计算分值
         this.moveByDirection(dir);
-        emptyBlockCounts.push(this.findEmptyCordinates().length);
-        scores.push(this.score);
+        emptyBlockCounts.push(this.findEmptyCoordinates().length);
+        console.log(
+          chalk.red(`Trying ${DIRECTION[dir]}...`)
+        );
+        console.table(
+          this.matrix.data,
+        );
+        existed2Counts.push(this.findExistedNumberCounts());
       }
-      existed2Counts.push(this.findCurrentMaxNumber());
+      scores.push(this.score);
+      
       // 还原状态
       this.setMatrix(originalMatrix);
+      // 还原分数
+      this.score = oldScore;
     });
-    const vector = [
-      scores,
+    
+    return [
       emptyBlockCounts,
+      scores,
       existed2Counts,
     ];
-    console.log('vector', vector);
-    return vector;
   }
 
   findCurrentMaxNumber(): number {
@@ -173,23 +371,44 @@ class Game implements algo, GameBaseInterface {
     return maxNum;
   }
 
-  findExistedNumberCounts(num: number): number {
-    const { data } = this.matrix;
+  checkContinousNumber(data: number[][], x: number, y: number): boolean {
+    let current = data[x][y];
     let count: number = 0;
-    data.forEach((row, x) => {
-      row.forEach((item, y) => {
-        if (item === num) {
-          count++;
+    if (data[x][y+1] && current === data[x][y+1]) count++;
+    if (data[x][y-1] && current === data[x][y-1]) count++;
+    if (data[x+1] && data[x+1][y] && current === data[x+1][y]) count++;
+    if (data[x-1] && data[x-1][y] && current === data[x-1][y]) count++;
+    return count > 0;
+  }
+
+  findExistedNumberCounts(): number {
+    const { data } = this.matrix;
+    const resultMap: any = {};
+    data.forEach((row: number[], x: number) => {
+      row.forEach((item: number, y: number) => {
+        if(typeof resultMap[item] === 'undefined') resultMap[item] = 0;
+        if (
+            this.checkContinousNumber(data, x, y)
+          ) {
+          resultMap[item]++;
         }
       });
     });
-    return count;
+
+    let maxCount: number = 0;
+    Object.keys(resultMap).map((item: any) => {
+      if (resultMap[item] > maxCount) maxCount = resultMap[item];
+    });
+    return maxCount;
   }
 
   showGameOverMessage(): void {
     console.log('');
-    console.log(`U failed, final score:${this.score}, total steps: ${this.states.length / 2}`);
-    console.log('Final 2048 game state', this.matrix.data);
+    console.log(chalk.red(`U failed, final score:${this.score}, total steps: ${this.states.length / 2}`));
+    console.log('Final 2048 game state');
+    console.table(
+      this.matrix.data,
+    )
     console.log('');
   }
 
@@ -198,31 +417,32 @@ class Game implements algo, GameBaseInterface {
   }
 
   genNewBoardState(): void {
-    const cords = this.genRandomCordinate();
-    if (!cords.length) {
+    const coords = this.genRandomCoordinate();
+    if (!coords.length) {
       clearInterval(this.timer);
       this.showGameOverMessage();
       this.trainingRecords.push([this.score, this.states]);
       this.handleGameOver();
       return;
     }
-    const [x, y] = cords;
+    const [x, y] = coords;
     this.matrix.data[x][y] = 2;
     this.pushState([ -1, this.matrix.data]);
     this.printState();
     
     setTimeout(() => {
-      this.moveNext();
-    }, TIMEOUT);
+      this.simulateNextMove();
+    }, SWITCH_PLAYER_TIMEOUT);
   }
 
-  moveNext(): void {
+  simulateNextMove(): void {
     const predictionPromiseLike = this.predictNextDirection();
     const predictionFn = (predictions: number[]) => {
       if (predictions.every(p => { return p == 0 })) {
         this.showGameOverMessage();
         this.handleGameOver();
       } else {
+        // 找到加权值最大的方向，选择它作为下次移动的方向
         const findMaxNumIndexInArray = (arr: number[]) => {
           let maxNum = Math.max.apply(null, arr);
           let maxIndex = -1;
@@ -241,10 +461,16 @@ class Game implements algo, GameBaseInterface {
         this.lastPredictions = predictions;
         this.lastMovementDirection = dir;
         console.log(`AI predictions ==> ${predictions}, dir ===> ${dir}`);
-        console.log(`Before moving ${DIRATION[dir]}`, this.matrix.data);
+        console.log(`Before moving ${DIRECTION[dir]}`);
+        console.table(
+          this.matrix.data,
+        )
         this.moveByDirection(dir);
         this.pushState([dir, this.matrix.data]);
-        console.log('After moving', this.matrix.data);
+        console.log(`After moving ${DIRECTION[dir]}`);
+        console.table(
+          this.matrix.data,
+        );
         
         // Tell the programme to generate next state
         this.genNewBoardState();
@@ -262,24 +488,24 @@ class Game implements algo, GameBaseInterface {
     this.states.push(step);
   }
 
-  moveByDirection(dir: DIRATION): void {
+  moveByDirection(dir: DIRECTION): void {
     switch(dir) {
-      case DIRATION.UP:
+      case DIRECTION.UP:
         this.moveUp();
         break;
-      case DIRATION.DOWN:
+      case DIRECTION.DOWN:
         this.moveDown();
         break;
-      case DIRATION.LEFT:
+      case DIRECTION.LEFT:
         this.moveLeft();
         break;
-      case DIRATION.RIGHT:
+      case DIRECTION.RIGHT:
         this.moveRight();
         break;
     } 
   }
 
-  compareMatrix(matrixA: Matrix, matrixB: Matrix): boolean {
+  equalsMatrix(matrixA: Matrix, matrixB: Matrix): boolean {
     const { data: ma, r: ra, c: ca } = matrixA;
     const { data: mb, r: rb, c: cb } = matrixB;
     if (ra !== rb || ca !== cb) return false;
@@ -293,18 +519,18 @@ class Game implements algo, GameBaseInterface {
     return true;
   }
 
-  isMovable(dir: DIRATION): boolean {
+  isDirMovable(dir: DIRECTION): boolean {
     const originalMatrix = this.matrix.clone();
     this.moveByDirection(dir);
-    if (this.compareMatrix(originalMatrix, this.matrix)) {
-      this.setMatrix(originalMatrix);
-      return false;
-    }
-    return true;
+    const isTheSameMatrix = this.equalsMatrix(originalMatrix, this.matrix);
+    // 移动后重置
+    this.setMatrix(originalMatrix);
+    // 如果两个矩阵值不一样，说明是可移动的
+    return !isTheSameMatrix;
   }
 
   setMatrix(matrix: Matrix): void {
-    this.matrix = matrix;
+    this.matrix = new Matrix([...matrix.data]);
   }
 
   rotateCounterClockwise(matrix: Matrix): Matrix {
@@ -342,7 +568,9 @@ class Game implements algo, GameBaseInterface {
     let modedRotateTimes = rotateTimes % 4;
     while (modedRotateTimes--) {
       for (let i: number = 0, len = r; i < ~~(r/2); i++, len -= 2) {
+        // 每次len -=2 是因为每一轮的旋转操作，都会消除最外层的两圈数字
         for (let j: number = i; j < c-i-1; j++) {
+          // 可以认为是在四个象限里对四个数字进行旋转，记为 A,B,C,D，变换关系为 A->B->C->D->A
           let t: number = data[i][j];
           data[i][j] = data[i+len-1 - (j-i)][i];
           data[i+len-1 - (j-i)][i] = data[i+len-1][i+len-1 - (j-i)];
@@ -356,22 +584,53 @@ class Game implements algo, GameBaseInterface {
 
   moveUp(): void {
     // 相当于顺时针旋转，右移，再进行逆时针旋转
+    // console.log(
+    //   'uuuuu'
+    // );
+    // console.table(
+    //   this.matrix.data
+    // );
     const tmpMatrix = this.rotateClockwise(this.matrix);
+    // console.table(
+    //   tmpMatrix.data
+    // );
     this.setMatrix(tmpMatrix);
     
     this.moveRight();
 
-    const targetMatrix = this.rotateCounterClockwise(this.matrix);
+    // console.table(
+    //   this.matrix.data
+    // );
+
+    const targetMatrix = this.rotateClockwise(this.matrix, 3);
+    // console.table(
+    //   targetMatrix.data
+    // );
     this.setMatrix(targetMatrix);
   }
   moveDown(): void {
     // 相当于逆时针旋转，右移，再进行顺时针旋转
+    // console.log(
+    //   'ddddd'
+    // );
+    // console.table(
+    //   this.matrix.data
+    // );
     const tmpMatrix = this.rotateCounterClockwise(this.matrix);
+    // console.table(
+    //   tmpMatrix.data
+    // );
     this.setMatrix(tmpMatrix);
     
     this.moveRight();
+    // console.table(
+    //   this.matrix.data
+    // );
 
     const targetMatrix = this.rotateClockwise(this.matrix);
+    // console.table(
+    //   targetMatrix.data
+    // );
     this.setMatrix(targetMatrix);
   }
 
@@ -462,26 +721,26 @@ class Game implements algo, GameBaseInterface {
     return false;
   }
 
-  genRandomCordinate(): number[] {
-    const cords = this.findEmptyCordinates();
-    if (cords.length) {
-      return cords[Math.floor(Math.random() * cords.length)];
+  genRandomCoordinate(): number[] {
+    const coords = this.findEmptyCoordinates();
+    if (coords.length) {
+      return coords[Math.floor(Math.random() * coords.length)];
     } else {
       return [];
     }
   }
   
-  findEmptyCordinates(): number[][] {
+  findEmptyCoordinates(): number[][] {
     const { data } = this.matrix;
-    const cordinates: any[] = [];
+    const coordinates: any[] = [];
     data.forEach((row, x) => {
       row.forEach((item, y) => {
         if (item === 0) {
-          cordinates.push([x, y]);
+          coordinates.push([x, y]);
         }
       });
     });
-    return cordinates;
+    return coordinates;
   }
 }
 

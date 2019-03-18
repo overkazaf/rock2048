@@ -9,6 +9,13 @@ export class Matrix {
     return this;
   }
   clone(): Matrix {
-    return new Matrix([...this.data]);
+    const newData: number[][] = [];
+    this.data.forEach((r: number[], i: number) => {
+      newData[i] = [];
+      r.forEach((c: number, j: number) => {
+        newData[i][j] = c;
+      })
+    });
+    return new Matrix(newData);
   }
 }

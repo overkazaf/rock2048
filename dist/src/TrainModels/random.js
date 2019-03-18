@@ -1,29 +1,19 @@
 "use strict";
 var __extends = (this && this.__extends) || (function () {
-    var extendStatics = function (d, b) {
-        extendStatics = Object.setPrototypeOf ||
-            ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-            function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
-        return extendStatics(d, b);
-    };
+    var extendStatics = Object.setPrototypeOf ||
+        ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
+        function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
     return function (d, b) {
         extendStatics(d, b);
         function __() { this.constructor = d; }
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 var base_1 = require("./base");
 var direction_1 = require("../enums/direction");
-var tf = __importStar(require("@tensorflow/tfjs"));
-var RandomModel = /** @class */ (function (_super) {
+var tf = require("@tensorflow/tfjs");
+var RandomModel = (function (_super) {
     __extends(RandomModel, _super);
     function RandomModel() {
         var _this = _super.call(this) || this;
@@ -38,10 +28,10 @@ var RandomModel = /** @class */ (function (_super) {
     RandomModel.prototype.predict = function (inputs) {
         var _this = this;
         var directions = [
-            direction_1.DIRATION.UP,
-            direction_1.DIRATION.DOWN,
-            direction_1.DIRATION.LEFT,
-            direction_1.DIRATION.RIGHT,
+            direction_1.DIRECTION.UP,
+            direction_1.DIRECTION.DOWN,
+            direction_1.DIRECTION.LEFT,
+            direction_1.DIRECTION.RIGHT,
         ];
         var ys = directions.map(function (dir) {
             return _this.weights[0] * inputs[0][dir] +
@@ -71,17 +61,19 @@ var RandomModel = /** @class */ (function (_super) {
         // 2. 当前移动所增加的分值
         // 3. 下一个状态中，"2"存在的个数（原因是2越多，下一次合并的可能性越大，也可以优化为连续数值相同的个数）
         // 直觉上来说
-        // 2的权重要更多些，因为我们目的就是获得更高的分数；
-        // 1次之，因为空余格子数越多，我们可以合并的可能越高，“救场”的可能性也越大；
-        // 3的话其实应该参考价值不大，但若是“连续数值多的”状态，应该给于的评估分值应该更高，这个倒是可以作为参考依据
-        // this.weights[0] = Math.random(); 
-        // this.weights[1] = Math.random();
-        // this.weights[2] = Math.random();
-        this.weights[0] = 1;
-        this.weights[1] = 10;
-        this.weights[2] = 1;
-        // this.weights[3] = 10;
+        // 2的权重要更多些，因为我们目的就是获得更高的分数(如果玩的是分数不限上限的版本)；
+        // 1次之，因为空余格子数越多，我们可以合并的可能性越大，“救场”的可能性也越大；
+        // 3的话其实应该参考价值不大，但若是“连续数值多的”状态，应该给予的评估分值应该更高，且当连续数值个相同时，数值大的分值也应更高
+        this.weights[0] = Math.random();
+        this.weights[1] = Math.random();
+        this.weights[2] = Math.random();
         this.biases[0] = Math.random();
+        //   [ 0.27232146199689433, 0.36707472624776893, 0.4951921221362434 ],
+        // [ 0.20254456615531224 ]
+        this.weights[0] = 0.27232146199689433;
+        this.weights[1] = 0.36707472624776893;
+        this.weights[2] = 0.4951921221362434;
+        this.biases[0] = 0.20254456615531224;
     };
     RandomModel.prototype.fit = function (inputs, labels, trainningCount) {
         if (trainningCount === void 0) { trainningCount = 100; }
