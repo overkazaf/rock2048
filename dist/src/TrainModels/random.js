@@ -19,6 +19,7 @@ var RandomModel = (function (_super) {
         var _this = _super.call(this) || this;
         _this.weights = [];
         _this.biases = [];
+        _this.trainLossList = [];
         _this.optimizer = tf.train.adam(0.01);
         return _this;
     }
@@ -33,16 +34,23 @@ var RandomModel = (function (_super) {
             direction_1.DIRECTION.LEFT,
             direction_1.DIRECTION.RIGHT,
         ];
+        // 计算出各个方向加权后的值
         var ys = directions.map(function (dir) {
-            return _this.weights[0] * inputs[0][dir] +
+            return (_this.weights[0] * inputs[0][dir] +
                 _this.weights[1] * inputs[1][dir] +
                 _this.weights[2] * inputs[2][dir] +
-                _this.biases[0];
+                _this.biases[0]);
         });
         var sum = ys.reduce(function (prev, curr) {
             return prev + curr;
         }, 0.0);
-        var normalizedYs = ys.map(function (y) { return y / sum; });
+        // 可当作是规范化后的概率，类似于softmax，但softmax求的是指数加权平均数
+        var found = false;
+        var yss = ys.map(function (y) { return y / sum; });
+        var maxYss = Math.max.apply(null, yss);
+        var normalizedYs = yss.map(function (y) {
+            return y === maxYss && !found ? (found = true, 1) : 0;
+        });
         return normalizedYs;
     };
     RandomModel.prototype.train = function (inputs, labels) {
@@ -50,9 +58,22 @@ var RandomModel = (function (_super) {
         // 根据inputs和labels进行weights和biases的参数调整，在随机算法中，我们直接把参数给随机好了。。
         this.optimizer.minimize(function () {
             var predictedYs = _this.predict(inputs);
-            // 计算评价值，默认用均方差，值越小说明拟合效果越好
-            return _this.loss(predictedYs, labels);
+            // 评价训练结果，以损失函数的值作为依据，损失函数默认用均方差，值越小说明拟合效果越好
+            var loss = _this.loss(predictedYs, labels);
+            _this.trainLossList.push(loss);
+            return loss;
         });
+    };
+    // 计算损失，默认采用均方误差
+    RandomModel.prototype.loss = function (a, b) {
+        var error = 0;
+        if (a.length !== b.length) {
+            throw new Error('Invaild inputs while calling loss function');
+        }
+        for (var i = 0; i < a.length; i++) {
+            error += 0.5 * Math.pow((a[i] - b[i]), 2);
+        }
+        return error;
     };
     RandomModel.prototype.randomize = function () {
         // 随机生成所有模型参数
@@ -70,11 +91,12 @@ var RandomModel = (function (_super) {
         this.biases[0] = Math.random();
         //   [ 0.27232146199689433, 0.36707472624776893, 0.4951921221362434 ],
         // [ 0.20254456615531224 ]
-        this.weights[0] = 0.27232146199689433;
-        this.weights[1] = 0.36707472624776893;
-        this.weights[2] = 0.4951921221362434;
-        this.biases[0] = 0.20254456615531224;
+        // this.weights[0] = 0.27232146199689433; 
+        // this.weights[1] = 0.36707472624776893;
+        // this.weights[2] = 0.4951921221362434;
+        // this.biases[0] = 0.20254456615531224;
     };
+    // 训练模型，以获得更好的参数。 
     RandomModel.prototype.fit = function (inputs, labels, trainningCount) {
         if (trainningCount === void 0) { trainningCount = 100; }
         for (var i = 0; i < trainningCount; i++) {

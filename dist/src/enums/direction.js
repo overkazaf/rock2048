@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 var DIRECTION;
 (function (DIRECTION) {
-    DIRECTION[DIRECTION["LEFT"] = 0] = "LEFT";
-    DIRECTION[DIRECTION["RIGHT"] = 1] = "RIGHT";
-    DIRECTION[DIRECTION["UP"] = 2] = "UP";
-    DIRECTION[DIRECTION["DOWN"] = 3] = "DOWN";
+    DIRECTION[DIRECTION["UP"] = 0] = "UP";
+    DIRECTION[DIRECTION["DOWN"] = 1] = "DOWN";
+    DIRECTION[DIRECTION["LEFT"] = 2] = "LEFT";
+    DIRECTION[DIRECTION["RIGHT"] = 3] = "RIGHT";
 })(DIRECTION = exports.DIRECTION || (exports.DIRECTION = {}));
 ;

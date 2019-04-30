@@ -13,11 +13,11 @@ BaseModel implements baseAIInterface {
     throw new Error('Implement this train function in sub class');
   }
 
-  loss(predictedYs: any[], labels: number[]): number[] {
-    const meanSquareError = predictedYs
-      .sub(tf.tensor(labels))
-      .square()
-      .mean();
-    return meanSquareError;
-  }
+  // loss(predictedYs: number[], labels: number[]): number {
+  //   const meanSquareError = predictedYs
+  //     .sub(tf.tensor(labels))
+  //     .square()
+  //     .mean();
+  //   return meanSquareError;
+  // }
 }

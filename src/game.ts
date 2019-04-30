@@ -2,24 +2,30 @@ import { algo } from './algorithm';
 import { Matrix } from './matrix';
 import { DIRECTION } from './enums/direction';
 import * as Models from './TrainModels/index';
+
 const chalk = require('chalk');
+const fs = require('fs');
+const path = require('path');
+
 const {
   RandomModel,
+  NNModel,
 } = Models;
 const SWITCH_PLAYER_TIMEOUT = 0;
-const RESTART_COUNT = 10;
+const RESTART_COUNT = process.argv[2] || 5;
 
 interface GameBaseInterface {
   isGameOver(): boolean;
-  genRandomCoordinate(): void;
+  genRandomUsableCoordinate(): void;
   findEmptyCoordinates(): number[][];
 }
 
 type DataSet = {
-  inputs: number[];
+  inputs: number[][];
   labels: number[];
 }
-const trainingDataSet: DataSet = {
+
+const trainingDataSet: any = {
   inputs: [],
   labels: [],
 };
@@ -29,9 +35,10 @@ class Game implements algo, GameBaseInterface {
   score: number;
   isOver: boolean;
   timer: any;
+  lastMatrixShadow: any;
   states: any[];
-  trainingModel: any;
-  trainingRecords: any[];
+  trainModel: any;
+  trainRecords: any[];
   lastPredictions: number[];
   prevPredictions: number[];
   prevMovementDirection: DIRECTION | null;
@@ -52,15 +59,15 @@ class Game implements algo, GameBaseInterface {
     this.score = 0;
     this.isOver = false;
     this.states = [];
-    this.trainingRecords = [];
+    this.trainRecords = [];
     this.prevPredictions = [];
     this.lastPredictions = [];
     this.lastState = [];
     this.prevState = [];
     this.prevMovementDirection = null;
     this.lastMovementDirection = null;
-    this.trainingModel = new RandomModel();
-    this.trainingModel.init();
+    this.trainModel = new NNModel();
+    this.trainModel.init();
     this.restartCount = RESTART_COUNT;
   }
 
@@ -98,21 +105,20 @@ class Game implements algo, GameBaseInterface {
 
     console.log(
       'currentState in predictNextDirection\n',
-
       chalk.red(`emptyBlockCounts, scores, existed2Counts`),
     );
     console.table(
       currentState.map((r: number[], i: number) => {
         return r.map((c: number) => {
-          if (i === 0) return `e${c}`;
-          else if (i === 1) return `s${c}`;
-          else return `c${c}`;
+          if (i === 0) return `empty ${c}`;
+          else if (i === 1) return `score ${c}`;
+          else return `2counts ${c}`;
         })
       }),
     );
 
     this.lastState = currentState;
-    return this.trainingModel.predict(currentState);
+    return this.trainModel.predict(currentState);
   }
 
   genNextRandomDirection(): DIRECTION {
@@ -144,35 +150,43 @@ class Game implements algo, GameBaseInterface {
         break;
     }
 
-    // trainingDataSet.inputs.push(lastState);
-    // trainingDataSet.labels.push(label);
-    // 记录参数后续的调节
-    // console.log(
-    //   'this.weights',
-    //   this.trainingModel.weights,
-    //   this.trainingModel.biases,
-    // );
-
     console.log(
-      'this.restartCount',
-      this.restartCount,
-      this.score,
-      [this.trainingModel.weights, this.trainingModel.biases],
+      'lastState',
+      // this.convertBoardStateToVector(),
+      DIRECTION[this.lastMovementDirection],
+      this.lastMatrixShadow,
+      label,
     );
+
+    
+    trainingDataSet.inputs.push(this.convertBoardStateToVector(this.lastMatrixShadow));
+    trainingDataSet.labels.push(label);
+    
     if (this.findCurrentMaxNumber() < 2048 && this.restartCount-- > 0) {
-      this.trainingRecords.push([ this.findCurrentMaxNumber(), [this.trainingModel.weights, this.trainingModel.biases] ]);
+      // this.trainRecords.push([ 
+      //   this.findCurrentMaxNumber(), 
+      //   [this.trainModel.weights, this.trainModel.biases]
+      // ]);
       setTimeout( () => {
         this.resetMatrix();
         this.start();
       }, 50);
     } else {
       console.log(
-        'trainingRecords',
-        this.trainingRecords.sort((a, b) => {
-          return b[0] - a[0];
-        }).map(item => item[0]),
+        'Current max value in the matrix',
         this.findCurrentMaxNumber(),
       );
+      console.table(
+        trainingDataSet.inputs[0],
+      )
+      console.table(
+        trainingDataSet.inputs[1],
+      )
+      console.table(
+        trainingDataSet.labels,
+      )
+
+      fs.writeFileSync(path.join(__dirname, `trained_${new Date()}.json`), JSON.stringify(trainingDataSet))
     }
 
     // console.info(
@@ -258,10 +272,10 @@ class Game implements algo, GameBaseInterface {
     const ys = (givenState: any) => {
       return directions.map(dir => {
         if (givenState.emptyBlockCounts[dir] === 0) return 0;
-        return this.trainingModel.weights[0] * givenState.emptyBlockCounts[dir] || 0 +
-        this.trainingModel.weights[0] * givenState.scores[dir] || 0 +
-        this.trainingModel.weights[0] * givenState.existed2Counts[dir] || 0 +
-        this.trainingModel.biases[0];
+        return this.trainModel.weights[0] * givenState.emptyBlockCounts[dir] || 0 +
+        this.trainModel.weights[0] * givenState.scores[dir] || 0 +
+        this.trainModel.weights[0] * givenState.existed2Counts[dir] || 0 +
+        this.trainModel.biases[0];
       });
     };
     
@@ -304,7 +318,7 @@ class Game implements algo, GameBaseInterface {
     ];
   }
 
-  convertBoardStateToVector(): any {
+  convertBoardStateToVector(givenMatrix?: any): any {
     // return this.getOptimizedStateToVector();
     
     const directions = [ DIRECTION.UP, DIRECTION.DOWN, DIRECTION.LEFT, DIRECTION.RIGHT ];
@@ -313,34 +327,34 @@ class Game implements algo, GameBaseInterface {
     const scores: number[] = [];
     const existed2Counts: number[] = [];
     
-    const originalMatrix = this.matrix.clone();
+    const originalMatrix = givenMatrix || this.matrix.clone();
     
     // this.getOptimizedStateToVector();
 
-    console.log('Speculating matrix transformation');
-    console.table(
-      originalMatrix.data,
-    );
+    // console.log('Speculating matrix transformation');
+    // console.table(
+    //   originalMatrix.data,
+    // );
     directions.forEach(dir => {
       // 从每个方向开始，递归做尝试
       const oldScore = this.score;
       if (!this.isDirMovable(dir)) {
-        // 无法移动，说明存在的空格数为0
-        emptyBlockCounts.push(0);
+        // 无法移动，说明存在的空格数为0，且强制记住这个值为不可移动
+        emptyBlockCounts.push(-1);
         console.log(
-          chalk.red(`${DIRECTION[dir]} is unmovable...`)
+          chalk.red(`${DIRECTION[dir]} is unreachable...`)
         );
         existed2Counts.push(0);
       } else {
         // 移动后计算分值
         this.moveByDirection(dir);
         emptyBlockCounts.push(this.findEmptyCoordinates().length);
-        console.log(
-          chalk.red(`Trying ${DIRECTION[dir]}...`)
-        );
-        console.table(
-          this.matrix.data,
-        );
+        // console.log(
+        //   chalk.red(`Trying ${DIRECTION[dir]}...`)
+        // );
+        // console.table(
+        //   this.matrix.data,
+        // );
         existed2Counts.push(this.findExistedNumberCounts());
       }
       scores.push(this.score);
@@ -417,55 +431,67 @@ class Game implements algo, GameBaseInterface {
   }
 
   genNewBoardState(): void {
-    const coords = this.genRandomCoordinate();
+    const coords = this.genRandomUsableCoordinate();
     if (!coords.length) {
+      // Can't find a random position to place
       clearInterval(this.timer);
       this.showGameOverMessage();
-      this.trainingRecords.push([this.score, this.states]);
+      this.trainRecords.push([this.score, this.states]);
       this.handleGameOver();
       return;
     }
     const [x, y] = coords;
+    // Try to put 2 into a valid place
     this.matrix.data[x][y] = 2;
-    this.pushState([ -1, this.matrix.data]);
-    this.printState();
+    this.pushState([
+      // marked -1 as AI's movement
+      -1, this.matrix.data
+    ]);
     
-    setTimeout(() => {
-      this.simulateNextMove();
-    }, SWITCH_PLAYER_TIMEOUT);
+    if (1) {
+      setTimeout(this.simulateNextMove.bind(this), SWITCH_PLAYER_TIMEOUT);
+    }
   }
 
   simulateNextMove(): void {
     const predictionPromiseLike = this.predictNextDirection();
     const predictionFn = (predictions: number[]) => {
-      if (predictions.every(p => { return p == 0 })) {
+      console.log('predictions', predictions);
+      const cannotMoveAnyMore: boolean = predictions.every(p => { return p === 0 });
+      if (cannotMoveAnyMore) {
         this.showGameOverMessage();
         this.handleGameOver();
       } else {
         // 找到加权值最大的方向，选择它作为下次移动的方向
-        const findMaxNumIndexInArray = (arr: number[]) => {
-          let maxNum = Math.max.apply(null, arr);
-          let maxIndex = -1;
-          arr.forEach((num: number, index: number) => {
-            if (num >= maxNum) {
-              maxIndex = index;
-              return;
-            }
-          });
-          return maxIndex;
-        };
-        this.prevPredictions = this.lastPredictions;
-        this.prevMovementDirection = this.lastMovementDirection;
-        const dir = findMaxNumIndexInArray(predictions);
+        const maxSortedPredictions = predictions.sort((a: number, b: number) => {
+          return b - a;
+        });
+        let dir = 0;
+        for (let i = 0; i < maxSortedPredictions.length; i++) {
+          if (this.isDirMovable(i)) {
+            dir = i;
+            break;
+          }
+        }
+        // const dir = findMaxAndMovableDirection(predictions);
         // We will use this state to optimize the training performance later
-        this.lastPredictions = predictions;
+        // this.lastPredictions = predictions;
         this.lastMovementDirection = dir;
-        console.log(`AI predictions ==> ${predictions}, dir ===> ${dir}`);
+        
+        console.log(`AI predictions ==> ${predictions}, dir ===> ${DIRECTION[dir]}, isMovable(${this.isDirMovable(dir)})`);
         console.log(`Before moving ${DIRECTION[dir]}`);
         console.table(
           this.matrix.data,
         )
+        
+        // 检查是否真正可移动
+        const tmp: any = this.matrix.clone();
         this.moveByDirection(dir);
+        const isTheSameMatrix = this.equalsMatrix(tmp, this.matrix);
+        if (!isTheSameMatrix) {
+          this.lastMatrixShadow = tmp;
+          this.lastMovementDirection = dir;
+        }
         this.pushState([dir, this.matrix.data]);
         console.log(`After moving ${DIRECTION[dir]}`);
         console.table(
@@ -477,8 +503,19 @@ class Game implements algo, GameBaseInterface {
       }
     };
     try {
-      // promise-like return values, probably returned by tensorflow
-      predictionPromiseLike.data().then(predictionFn);
+      // Promise-Like values, and these values are probably returned by tensorflow
+      predictionPromiseLike.data().then((data) => {
+        const exp_sum = data.reduce((prev: number, curr: number) => {
+          return prev + curr
+        }, 0);
+
+        const softmaxData = data.map(d => {
+          return d / exp_sum;
+        });
+
+        // console.log('softmaxData', fixedData, exp_sum, softmaxData);
+        predictionFn(softmaxData);
+      });
     } catch(e) {
       predictionFn.call(null, predictionPromiseLike);
     }
@@ -486,6 +523,11 @@ class Game implements algo, GameBaseInterface {
 
   pushState(step: any[]): void {
     this.states.push(step);
+
+    if (1) {
+      // For debugging
+      this.printState();
+    }
   }
 
   moveByDirection(dir: DIRECTION): void {
@@ -721,7 +763,10 @@ class Game implements algo, GameBaseInterface {
     return false;
   }
 
-  genRandomCoordinate(): number[] {
+  /**
+   * 生成随机可占用的坐标点
+   */
+  genRandomUsableCoordinate(): number[] {
     const coords = this.findEmptyCoordinates();
     if (coords.length) {
       return coords[Math.floor(Math.random() * coords.length)];

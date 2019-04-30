@@ -12,9 +12,11 @@ var matrix_1 = require("./matrix");
 var direction_1 = require("./enums/direction");
 var Models = require("./TrainModels/index");
 var chalk = require('chalk');
-var RandomModel = Models.RandomModel;
+var fs = require('fs');
+var path = require('path');
+var RandomModel = Models.RandomModel, NNModel = Models.NNModel;
 var SWITCH_PLAYER_TIMEOUT = 0;
-var RESTART_COUNT = 10;
+var RESTART_COUNT = process.argv[2] || 5;
 var trainingDataSet = {
     inputs: [],
     labels: [],
@@ -30,15 +32,15 @@ var Game = (function () {
         this.score = 0;
         this.isOver = false;
         this.states = [];
-        this.trainingRecords = [];
+        this.trainRecords = [];
         this.prevPredictions = [];
         this.lastPredictions = [];
         this.lastState = [];
         this.prevState = [];
         this.prevMovementDirection = null;
         this.lastMovementDirection = null;
-        this.trainingModel = new RandomModel();
-        this.trainingModel.init();
+        this.trainModel = new NNModel();
+        this.trainModel.init();
         this.restartCount = RESTART_COUNT;
     }
     Game.prototype.resetMatrix = function () {
@@ -70,15 +72,15 @@ var Game = (function () {
         console.table(currentState.map(function (r, i) {
             return r.map(function (c) {
                 if (i === 0)
-                    return "e" + c;
+                    return "empty " + c;
                 else if (i === 1)
-                    return "s" + c;
+                    return "score " + c;
                 else
-                    return "c" + c;
+                    return "2counts " + c;
             });
         }));
         this.lastState = currentState;
-        return this.trainingModel.predict(currentState);
+        return this.trainModel.predict(currentState);
     };
     Game.prototype.genNextRandomDirection = function () {
         return ~~(Math.random() * 4);
@@ -103,26 +105,27 @@ var Game = (function () {
                 label = [0, 0, 1, 0];
                 break;
         }
-        // trainingDataSet.inputs.push(lastState);
-        // trainingDataSet.labels.push(label);
-        // 记录参数后续的调节
-        // console.log(
-        //   'this.weights',
-        //   this.trainingModel.weights,
-        //   this.trainingModel.biases,
-        // );
-        console.log('this.restartCount', this.restartCount, this.score, [this.trainingModel.weights, this.trainingModel.biases]);
+        console.log('lastState', 
+        // this.convertBoardStateToVector(),
+        direction_1.DIRECTION[this.lastMovementDirection], this.lastMatrixShadow, label);
+        trainingDataSet.inputs.push(this.convertBoardStateToVector(this.lastMatrixShadow));
+        trainingDataSet.labels.push(label);
         if (this.findCurrentMaxNumber() < 2048 && this.restartCount-- > 0) {
-            this.trainingRecords.push([this.findCurrentMaxNumber(), [this.trainingModel.weights, this.trainingModel.biases]]);
+            // this.trainRecords.push([ 
+            //   this.findCurrentMaxNumber(), 
+            //   [this.trainModel.weights, this.trainModel.biases]
+            // ]);
             setTimeout(function () {
                 _this.resetMatrix();
                 _this.start();
             }, 50);
         }
         else {
-            console.log('trainingRecords', this.trainingRecords.sort(function (a, b) {
-                return b[0] - a[0];
-            }).map(function (item) { return item[0]; }), this.findCurrentMaxNumber());
+            console.log('Current max value in the matrix', this.findCurrentMaxNumber());
+            console.table(trainingDataSet.inputs[0]);
+            console.table(trainingDataSet.inputs[1]);
+            console.table(trainingDataSet.labels);
+            fs.writeFileSync(path.join(__dirname, "trained_" + new Date() + ".json"), JSON.stringify(trainingDataSet));
         }
         // console.info(
         //   'Training',
@@ -199,10 +202,10 @@ var Game = (function () {
             return directions.map(function (dir) {
                 if (givenState.emptyBlockCounts[dir] === 0)
                     return 0;
-                return _this.trainingModel.weights[0] * givenState.emptyBlockCounts[dir] || 0 +
-                    _this.trainingModel.weights[0] * givenState.scores[dir] || 0 +
-                    _this.trainingModel.weights[0] * givenState.existed2Counts[dir] || 0 +
-                    _this.trainingModel.biases[0];
+                return _this.trainModel.weights[0] * givenState.emptyBlockCounts[dir] || 0 +
+                    _this.trainModel.weights[0] * givenState.scores[dir] || 0 +
+                    _this.trainModel.weights[0] * givenState.existed2Counts[dir] || 0 +
+                    _this.trainModel.biases[0];
             });
         };
         var getMaxEvalState = function (states) {
@@ -237,32 +240,38 @@ var Game = (function () {
         ];
         var _a;
     };
-    Game.prototype.convertBoardStateToVector = function () {
+    Game.prototype.convertBoardStateToVector = function (givenMatrix) {
         // return this.getOptimizedStateToVector();
         var _this = this;
         var directions = [direction_1.DIRECTION.UP, direction_1.DIRECTION.DOWN, direction_1.DIRECTION.LEFT, direction_1.DIRECTION.RIGHT];
         var emptyBlockCounts = [];
         var scores = [];
         var existed2Counts = [];
-        var originalMatrix = this.matrix.clone();
+        var originalMatrix = givenMatrix || this.matrix.clone();
         // this.getOptimizedStateToVector();
-        console.log('Speculating matrix transformation');
-        console.table(originalMatrix.data);
+        // console.log('Speculating matrix transformation');
+        // console.table(
+        //   originalMatrix.data,
+        // );
         directions.forEach(function (dir) {
             // 从每个方向开始，递归做尝试
             var oldScore = _this.score;
             if (!_this.isDirMovable(dir)) {
-                // 无法移动，说明存在的空格数为0
-                emptyBlockCounts.push(0);
-                console.log(chalk.red(direction_1.DIRECTION[dir] + " is unmovable..."));
+                // 无法移动，说明存在的空格数为0，且强制记住这个值为不可移动
+                emptyBlockCounts.push(-1);
+                console.log(chalk.red(direction_1.DIRECTION[dir] + " is unreachable..."));
                 existed2Counts.push(0);
             }
             else {
                 // 移动后计算分值
                 _this.moveByDirection(dir);
                 emptyBlockCounts.push(_this.findEmptyCoordinates().length);
-                console.log(chalk.red("Trying " + direction_1.DIRECTION[dir] + "..."));
-                console.table(_this.matrix.data);
+                // console.log(
+                //   chalk.red(`Trying ${DIRECTION[dir]}...`)
+                // );
+                // console.table(
+                //   this.matrix.data,
+                // );
                 existed2Counts.push(_this.findExistedNumberCounts());
             }
             scores.push(_this.score);
@@ -333,54 +342,63 @@ var Game = (function () {
         this.genNewBoardState();
     };
     Game.prototype.genNewBoardState = function () {
-        var _this = this;
-        var coords = this.genRandomCoordinate();
+        var coords = this.genRandomUsableCoordinate();
         if (!coords.length) {
+            // Can't find a random position to place
             clearInterval(this.timer);
             this.showGameOverMessage();
-            this.trainingRecords.push([this.score, this.states]);
+            this.trainRecords.push([this.score, this.states]);
             this.handleGameOver();
             return;
         }
         var x = coords[0], y = coords[1];
+        // Try to put 2 into a valid place
         this.matrix.data[x][y] = 2;
-        this.pushState([-1, this.matrix.data]);
-        this.printState();
-        setTimeout(function () {
-            _this.simulateNextMove();
-        }, SWITCH_PLAYER_TIMEOUT);
+        this.pushState([
+            // marked -1 as AI's movement
+            -1, this.matrix.data
+        ]);
+        if (1) {
+            setTimeout(this.simulateNextMove.bind(this), SWITCH_PLAYER_TIMEOUT);
+        }
     };
     Game.prototype.simulateNextMove = function () {
         var _this = this;
         var predictionPromiseLike = this.predictNextDirection();
         var predictionFn = function (predictions) {
-            if (predictions.every(function (p) { return p == 0; })) {
+            console.log('predictions', predictions);
+            var cannotMoveAnyMore = predictions.every(function (p) { return p === 0; });
+            if (cannotMoveAnyMore) {
                 _this.showGameOverMessage();
                 _this.handleGameOver();
             }
             else {
                 // 找到加权值最大的方向，选择它作为下次移动的方向
-                var findMaxNumIndexInArray = function (arr) {
-                    var maxNum = Math.max.apply(null, arr);
-                    var maxIndex = -1;
-                    arr.forEach(function (num, index) {
-                        if (num >= maxNum) {
-                            maxIndex = index;
-                            return;
-                        }
-                    });
-                    return maxIndex;
-                };
-                _this.prevPredictions = _this.lastPredictions;
-                _this.prevMovementDirection = _this.lastMovementDirection;
-                var dir = findMaxNumIndexInArray(predictions);
+                var maxSortedPredictions = predictions.sort(function (a, b) {
+                    return b - a;
+                });
+                var dir = 0;
+                for (var i = 0; i < maxSortedPredictions.length; i++) {
+                    if (_this.isDirMovable(i)) {
+                        dir = i;
+                        break;
+                    }
+                }
+                // const dir = findMaxAndMovableDirection(predictions);
                 // We will use this state to optimize the training performance later
-                _this.lastPredictions = predictions;
+                // this.lastPredictions = predictions;
                 _this.lastMovementDirection = dir;
-                console.log("AI predictions ==> " + predictions + ", dir ===> " + dir);
+                console.log("AI predictions ==> " + predictions + ", dir ===> " + direction_1.DIRECTION[dir] + ", isMovable(" + _this.isDirMovable(dir) + ")");
                 console.log("Before moving " + direction_1.DIRECTION[dir]);
                 console.table(_this.matrix.data);
+                // 检查是否真正可移动
+                var tmp = _this.matrix.clone();
                 _this.moveByDirection(dir);
+                var isTheSameMatrix = _this.equalsMatrix(tmp, _this.matrix);
+                if (!isTheSameMatrix) {
+                    _this.lastMatrixShadow = tmp;
+                    _this.lastMovementDirection = dir;
+                }
                 _this.pushState([dir, _this.matrix.data]);
                 console.log("After moving " + direction_1.DIRECTION[dir]);
                 console.table(_this.matrix.data);
@@ -389,8 +407,17 @@ var Game = (function () {
             }
         };
         try {
-            // promise-like return values, probably returned by tensorflow
-            predictionPromiseLike.data().then(predictionFn);
+            // Promise-Like values, and these values are probably returned by tensorflow
+            predictionPromiseLike.data().then(function (data) {
+                var exp_sum = data.reduce(function (prev, curr) {
+                    return prev + curr;
+                }, 0);
+                var softmaxData = data.map(function (d) {
+                    return d / exp_sum;
+                });
+                // console.log('softmaxData', fixedData, exp_sum, softmaxData);
+                predictionFn(softmaxData);
+            });
         }
         catch (e) {
             predictionFn.call(null, predictionPromiseLike);
@@ -398,6 +425,10 @@ var Game = (function () {
     };
     Game.prototype.pushState = function (step) {
         this.states.push(step);
+        if (1) {
+            // For debugging
+            this.printState();
+        }
     };
     Game.prototype.moveByDirection = function (dir) {
         switch (dir) {
@@ -619,7 +650,10 @@ var Game = (function () {
     Game.prototype.isGameOver = function () {
         return false;
     };
-    Game.prototype.genRandomCoordinate = function () {
+    /**
+     * 生成随机可占用的坐标点
+     */
+    Game.prototype.genRandomUsableCoordinate = function () {
         var coords = this.findEmptyCoordinates();
         if (coords.length) {
             return coords[Math.floor(Math.random() * coords.length)];

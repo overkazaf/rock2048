@@ -1,6 +1,5 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-var tf = require("@tensorflow/tfjs");
 var BaseModel = (function () {
     function BaseModel() {
     }
@@ -9,13 +8,6 @@ var BaseModel = (function () {
     };
     BaseModel.prototype.train = function (inputs, labels) {
         throw new Error('Implement this train function in sub class');
-    };
-    BaseModel.prototype.loss = function (predictedYs, labels) {
-        var meanSquareError = predictedYs
-            .sub(tf.tensor(labels))
-            .square()
-            .mean();
-        return meanSquareError;
     };
     return BaseModel;
 }());

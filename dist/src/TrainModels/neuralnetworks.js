@@ -14,47 +14,59 @@ var base_1 = require("./base");
 var tf = require("@tensorflow/tfjs");
 var NNModel = (function (_super) {
     __extends(NNModel, _super);
-    function NNModel(inputSize, hiddenLayerSize, outputSize, learningRate) {
-        if (inputSize === void 0) { inputSize = 4; }
-        if (hiddenLayerSize === void 0) { hiddenLayerSize = inputSize * 2; }
-        if (outputSize === void 0) { outputSize = 2; }
-        if (learningRate === void 0) { learningRate = 0.1; }
+    function NNModel(inputSize, hiddenSize, outputSize, // 标识最终输入的预测方向向量
+        learningRate) {
+        if (inputSize === void 0) { inputSize = 12; }
+        if (hiddenSize === void 0) { hiddenSize = inputSize * 2; }
+        if (outputSize === void 0) { outputSize = 4; }
+        if (learningRate === void 0) { learningRate = 0.01; }
         var _this = _super.call(this) || this;
         _this.weights = [];
         _this.biases = [];
-        _this.hiddenLayerSize = hiddenLayerSize;
+        _this.hiddenSize = hiddenSize;
         _this.inputSize = inputSize;
         _this.outputSize = outputSize;
-        // Using ADAM optimizer
+        // Using ADAM optimizer, we can compare it with SDG, AdaGrad and also Momentum optimizer
         _this.optimizer = tf.train.adam(learningRate);
         _this.weights = [];
         _this.biases = [];
         return _this;
     }
     NNModel.prototype.init = function () {
-        // Hidden layer
-        this.weights[0] = tf.variable(tf.randomNormal([this.inputSize, this.hiddenLayerSize]));
+        // for hidden layer
+        console.log('this', this.inputSize, this.hiddenSize, this.outputSize);
+        this.weights[0] = tf.variable(tf.randomNormal([this.inputSize, this.hiddenSize]));
         this.biases[0] = tf.variable(tf.scalar(Math.random()));
-        // Output layer
-        this.weights[1] = tf.variable(tf.randomNormal([this.hiddenLayerSize, this.outputSize]));
+        // for output layer
+        this.weights[1] = tf.variable(tf.randomNormal([this.hiddenSize, this.outputSize]));
         this.biases[1] = tf.variable(tf.scalar(Math.random()));
+    };
+    NNModel.prototype.calWeightedScore = function (inputs) {
+        var empty = inputs[0], s = inputs[1], e2 = inputs[2];
+        return empty.concat(s, e2);
+        // return empty.map((e: number, index: number) => {
+        //   if (e == -1) return 0;
+        //   else {
+        //     return e + s[index] * e2[index];
+        //   }
+        // });
     };
     // 返回一个promise对象
     NNModel.prototype.predict = function (inputs) {
         var _this = this;
-        var x = tf.tensor(inputs);
+        var x = tf.tensor([
+            this.calWeightedScore(inputs)
+        ]);
         var prediction = tf.tidy(function () {
-            // 2*4 * 4*8 = 2*8
-            // 2*8 * 8*2 = 2*2
             var hiddenLayer = tf.sigmoid(x.matMul(_this.weights[0]).add(_this.biases[0]));
             var outputLayer = tf.sigmoid(hiddenLayer.matMul(_this.weights[1]).add(_this.biases[1]));
             return outputLayer;
         });
         return prediction;
     };
-    NNModel.prototype.fit = function (inputs, labels, trainningCount) {
-        if (trainningCount === void 0) { trainningCount = 100; }
-        for (var i = 0; i < trainningCount; i++) {
+    NNModel.prototype.fit = function (inputs, labels, trainingCount) {
+        if (trainingCount === void 0) { trainingCount = 100; }
+        for (var i = 0; i < trainingCount; i++) {
             this.train(inputs, labels);
         }
     };
